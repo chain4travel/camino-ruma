@@ -200,6 +200,8 @@ pub enum ErrorKind {
         current_version: Option<String>,
     },
 
+    InvalidCaminoAuth,
+
     /// M_UNACTIONABLE
     #[cfg(feature = "unstable-msc3843")]
     Unactionable,
@@ -278,6 +280,7 @@ impl AsRef<str> for ErrorKind {
             Self::ConnectionFailed => "M_CONNECTION_FAILED",
             Self::ConnectionTimeout => "M_CONNECTION_TIMEOUT",
             Self::WrongRoomKeysVersion { .. } => "M_WRONG_ROOM_KEYS_VERSION",
+            Self::InvalidCaminoAuth => "M_INVALID_CAMINO_AUTH",
             #[cfg(feature = "unstable-msc3843")]
             Self::Unactionable => "M_UNACTIONABLE",
             Self::_Custom { errcode, .. } => &errcode.0,

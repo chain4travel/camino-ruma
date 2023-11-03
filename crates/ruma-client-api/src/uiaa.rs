@@ -53,6 +53,9 @@ pub enum AuthData {
     /// Fallback acknowledgement.
     FallbackAcknowledgement(FallbackAcknowledgement),
 
+    /// Camino authentication (`m.login.camino`).
+    Camino(Camino),
+
     #[doc(hidden)]
     _Custom(CustomAuthData),
 }
@@ -89,6 +92,7 @@ impl AuthData {
             "m.login.email.identity" => Self::EmailIdentity(deserialize_variant(session, data)?),
             "m.login.msisdn" => Self::Msisdn(deserialize_variant(session, data)?),
             "m.login.dummy" => Self::Dummy(deserialize_variant(session, data)?),
+            "m.login.camino" => Self::Camino(deserialize_variant(session, data)?),
             "m.registration_token" => Self::RegistrationToken(deserialize_variant(session, data)?),
             _ => {
                 Self::_Custom(CustomAuthData { auth_type: auth_type.into(), session, extra: data })
@@ -111,6 +115,7 @@ impl AuthData {
             Self::Dummy(_) => Some(AuthType::Dummy),
             Self::RegistrationToken(_) => Some(AuthType::RegistrationToken),
             Self::FallbackAcknowledgement(_) => None,
+            Self::Camino(_) => Some(AuthType::Camino),
             Self::_Custom(c) => Some(AuthType::_Custom(PrivOwnedStr(c.auth_type.as_str().into()))),
         }
     }
@@ -125,6 +130,7 @@ impl AuthData {
             Self::Dummy(x) => x.session.as_deref(),
             Self::RegistrationToken(x) => x.session.as_deref(),
             Self::FallbackAcknowledgement(x) => Some(&x.session),
+            Self::Camino(x) => x.session.as_deref(),
             Self::_Custom(x) => x.session.as_deref(),
         }
     }
@@ -166,6 +172,11 @@ impl AuthData {
             }
             // Dummy and fallback acknowledgement have no associated data
             Self::Dummy(_) | Self::FallbackAcknowledgement(_) => Cow::Owned(JsonObject::default()),
+            Self::Camino(x) => Cow::Owned(serialize(Camino {
+                public_key: x.public_key.clone(),
+                signature: x.signature.clone(),
+                session: None,
+            })),
             Self::_Custom(c) => Cow::Borrowed(&c.extra),
         }
     }
@@ -182,6 +193,7 @@ impl fmt::Debug for AuthData {
             Self::Dummy(inner) => inner.fmt(f),
             Self::RegistrationToken(inner) => inner.fmt(f),
             Self::FallbackAcknowledgement(inner) => inner.fmt(f),
+            Self::Camino(inner) => inner.fmt(f),
             Self::_Custom(inner) => inner.fmt(f),
         }
     }
@@ -213,6 +225,7 @@ impl<'de> Deserialize<'de> for AuthData {
             Some("m.login.registration_token") => {
                 from_raw_json_value(&json).map(Self::RegistrationToken)
             }
+            Some("m.login.camino") => from_raw_json_value(&json).map(Self::Camino),
             None => from_raw_json_value(&json).map(Self::FallbackAcknowledgement),
             Some(_) => from_raw_json_value(&json).map(Self::_Custom),
         }
@@ -251,6 +264,10 @@ pub enum AuthType {
     /// Registration token-based authentication (`m.login.registration_token`).
     #[ruma_enum(rename = "m.login.registration_token")]
     RegistrationToken,
+
+    /// Camino authentication (`m.login.camino`).
+    #[ruma_enum(rename = "m.login.camino")]
+    Camino,
 
     #[doc(hidden)]
     _Custom(PrivOwnedStr),
@@ -351,6 +368,21 @@ pub struct Msisdn {
     /// Thirdparty identifier credentials.
     #[serde(rename = "threepid_creds")]
     pub thirdparty_id_creds: ThirdpartyIdCredentials,
+
+    /// The value of the session key given by the homeserver, if any.
+    pub session: Option<String>,
+}
+
+/// Data for camino UIAA flow.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[serde(tag = "type", rename = "m.login.camino")]
+pub struct Camino {
+    /// HEX-encoded camino public key bytes.
+    pub public_key: String,
+
+    /// Hex-encoded signature bytes.
+    pub signature: String,
 
     /// The value of the session key given by the homeserver, if any.
     pub session: Option<String>,
