@@ -181,6 +181,8 @@ pub enum ErrorKind {
     /// M_CONNECTION_TIMEOUT
     ConnectionTimeout,
 
+    InvalidCaminoAuth,
+
     #[doc(hidden)]
     _Custom { errcode: PrivOwnedStr, extra: Extra },
 }
@@ -237,6 +239,7 @@ impl AsRef<str> for ErrorKind {
             Self::BadStatus { .. } => "M_BAD_STATUS",
             Self::ConnectionFailed => "M_CONNECTION_FAILED",
             Self::ConnectionTimeout => "M_CONNECTION_TIMEOUT",
+            Self::InvalidCaminoAuth => "M_INVALID_CAMINO_AUTH",
             Self::_Custom { errcode, .. } => &errcode.0,
         }
     }

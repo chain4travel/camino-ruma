@@ -155,6 +155,9 @@ pub mod v3 {
 
         #[doc(hidden)]
         _Custom(CustomLoginInfo),
+
+        /// Signed camino public key.
+        Camino(CaminoLoginInfo),
     }
 
     impl LoginInfo {
@@ -177,6 +180,7 @@ pub mod v3 {
                 "m.login.application_service" => {
                     Self::ApplicationService(serde_json::from_value(JsonValue::Object(data))?)
                 }
+                "m.login.camino" => Self::Camino(serde_json::from_value(JsonValue::Object(data))?),
                 _ => Self::_Custom(CustomLoginInfo { login_type: login_type.into(), extra: data }),
             })
         }
@@ -190,6 +194,7 @@ pub mod v3 {
                 Self::Token(inner) => inner.fmt(f),
                 Self::ApplicationService(inner) => inner.fmt(f),
                 Self::_Custom(inner) => inner.fmt(f),
+                Self::Camino(inner) => inner.fmt(f),
             }
         }
     }
@@ -215,6 +220,7 @@ pub mod v3 {
                 "m.login.application_service" => {
                     from_json_value(json).map(Self::ApplicationService)
                 }
+                "m.login.camino" => from_json_value(json).map(Self::Camino),
                 _ => from_json_value(json).map(Self::_Custom),
             }
         }
@@ -304,6 +310,32 @@ pub mod v3 {
         }
     }
 
+    /// An identifier and password to supply as authentication.
+    #[derive(Clone, Deserialize, Serialize)]
+    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[serde(tag = "type", rename = "m.login.camino")]
+    pub struct CaminoLoginInfo {
+        /// HEX-encoded camino public key bytes.
+        pub public_key: String,
+
+        /// HEX-encoded signature for camino public key bytes.
+        pub signature: String,
+    }
+
+    impl CaminoLoginInfo {
+        /// Creates a new `CaminoLoginInfo` with the given identifier and password.
+        pub fn new(public_key: String, signature: String) -> Self {
+            Self { public_key, signature }
+        }
+    }
+
+    impl fmt::Debug for CaminoLoginInfo {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let Self { public_key, signature: _ } = self;
+            f.debug_struct("CaminoLoginInfo").field("public_key", public_key).finish_non_exhaustive()
+        }
+    }
+
     /// Client configuration provided by the server.
     #[derive(Clone, Debug, Deserialize, Serialize)]
     #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
@@ -389,6 +421,18 @@ pub mod v3 {
                 LoginInfo::Token(Token { token })
             );
             assert_eq!(token, "1234567890abcdef");
+
+            assert_matches!(
+                from_json_value(json!({
+                    "type": "m.login.camino",
+                    "public_key": "0386837edd2d9f507b6684766ed9f657cadc7f27fb01a10dfbfae6196230294b4c9fd428d2",
+                    "signature": "91cf6195a331f7d49609fe5b939d7d7d9767bfaeafa7a890d5a541891a8171d56e29ff46e933a03c113b6695bbd2ea95e4b5fa6eef1d019bd19283d08f46e9550076c36108"
+                }))
+                .unwrap(),
+                LoginInfo::Camino(login)
+            );
+            assert_eq!(login.public_key, "0386837edd2d9f507b6684766ed9f657cadc7f27fb01a10dfbfae6196230294b4c9fd428d2");
+            assert_eq!(login.signature, "91cf6195a331f7d49609fe5b939d7d7d9767bfaeafa7a890d5a541891a8171d56e29ff46e933a03c113b6695bbd2ea95e4b5fa6eef1d019bd19283d08f46e9550076c36108");
         }
 
         #[test]
@@ -397,7 +441,7 @@ pub mod v3 {
             use ruma_common::api::{MatrixVersion, OutgoingRequest, SendAccessToken};
             use serde_json::Value as JsonValue;
 
-            use super::{LoginInfo, Password, Request, Token};
+            use super::{LoginInfo, Password, Request, Token, CaminoLoginInfo};
             use crate::uiaa::UserIdentifier;
 
             let req: http::Request<Vec<u8>> = Request {
@@ -450,6 +494,35 @@ pub mod v3 {
                     },
                     "type": "m.login.password",
                     "password": "deadbeef",
+                    "initial_device_display_name": "test",
+                })
+            );
+
+
+
+            let req: http::Request<Vec<u8>> = Request {
+                login_info: LoginInfo::Camino(CaminoLoginInfo {
+                    public_key: "0386837edd2d9f507b6684766ed9f657cadc7f27fb01a10dfbfae6196230294b4c9fd428d2".to_owned(),
+                    signature: "91cf6195a331f7d49609fe5b939d7d7d9767bfaeafa7a890d5a541891a8171d56e29ff46e933a03c113b6695bbd2ea95e4b5fa6eef1d019bd19283d08f46e9550076c36108".to_owned(),
+                }),
+                device_id: None,
+                initial_device_display_name: Some("test".to_owned()),
+                refresh_token: false,
+            }
+            .try_into_http_request(
+                "https://homeserver.tld",
+                SendAccessToken::None,
+                &[MatrixVersion::V1_1],
+            )
+            .unwrap();
+
+            let req_body_value: JsonValue = serde_json::from_slice(req.body()).unwrap();
+            assert_eq!(
+                req_body_value,
+                json!({
+                    "type": "m.login.camino",
+                    "public_key": "0386837edd2d9f507b6684766ed9f657cadc7f27fb01a10dfbfae6196230294b4c9fd428d2",
+                    "signature": "91cf6195a331f7d49609fe5b939d7d7d9767bfaeafa7a890d5a541891a8171d56e29ff46e933a03c113b6695bbd2ea95e4b5fa6eef1d019bd19283d08f46e9550076c36108",
                     "initial_device_display_name": "test",
                 })
             );
