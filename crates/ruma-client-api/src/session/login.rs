@@ -21,7 +21,7 @@ pub mod v3 {
     };
     use serde_json::Value as JsonValue;
 
-    use crate::uiaa::UserIdentifier;
+    use crate::uiaa::{AuthData, UserIdentifier};
 
     const METADATA: Metadata = metadata! {
         method: POST,
@@ -36,9 +36,15 @@ pub mod v3 {
     /// Request type for the `login` endpoint.
     #[request(error = crate::Error)]
     pub struct Request {
-        /// The authentication mechanism.
-        #[serde(flatten)]
-        pub login_info: LoginInfo,
+        /// Identification information for the user.
+        pub identifier: UserIdentifier,
+
+        /// Additional authentication information for the user-interactive authentication API.
+        ///
+        /// It should be left empty, or omitted, unless an earlier call returned an response
+        /// with status code 401.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub auth: Option<AuthData>,
 
         /// ID of the client device
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -113,9 +119,10 @@ pub mod v3 {
     }
     impl Request {
         /// Creates a new `Request` with the given login info.
-        pub fn new(login_info: LoginInfo) -> Self {
+        pub fn new(username: String, auth: AuthData) -> Self {
             Self {
-                login_info,
+                identifier: UserIdentifier::UserIdOrLocalpart(username),
+                auth: Some(auth),
                 device_id: None,
                 initial_device_display_name: None,
                 refresh_token: false,
@@ -332,7 +339,9 @@ pub mod v3 {
     impl fmt::Debug for CaminoLoginInfo {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             let Self { public_key, signature: _ } = self;
-            f.debug_struct("CaminoLoginInfo").field("public_key", public_key).finish_non_exhaustive()
+            f.debug_struct("CaminoLoginInfo")
+                .field("public_key", public_key)
+                .finish_non_exhaustive()
         }
     }
 
@@ -431,7 +440,10 @@ pub mod v3 {
                 .unwrap(),
                 LoginInfo::Camino(login)
             );
-            assert_eq!(login.public_key, "0386837edd2d9f507b6684766ed9f657cadc7f27fb01a10dfbfae6196230294b4c9fd428d2");
+            assert_eq!(
+                login.public_key,
+                "0386837edd2d9f507b6684766ed9f657cadc7f27fb01a10dfbfae6196230294b4c9fd428d2"
+            );
             assert_eq!(login.signature, "91cf6195a331f7d49609fe5b939d7d7d9767bfaeafa7a890d5a541891a8171d56e29ff46e933a03c113b6695bbd2ea95e4b5fa6eef1d019bd19283d08f46e9550076c36108");
         }
 
@@ -441,11 +453,15 @@ pub mod v3 {
             use ruma_common::api::{MatrixVersion, OutgoingRequest, SendAccessToken};
             use serde_json::Value as JsonValue;
 
-            use super::{LoginInfo, Password, Request, Token, CaminoLoginInfo};
-            use crate::uiaa::UserIdentifier;
+            use super::Request;
+            use crate::uiaa::{AuthData, Camino, Password, RegistrationToken, UserIdentifier};
 
             let req: http::Request<Vec<u8>> = Request {
-                login_info: LoginInfo::Token(Token { token: "0xdeadbeef".to_owned() }),
+                identifier: UserIdentifier::UserIdOrLocalpart("must be valid username".to_owned()),
+                auth: Some(AuthData::RegistrationToken(RegistrationToken {
+                    token: "0xdeadbeef".to_owned(),
+                    session: None,
+                })),
                 device_id: None,
                 initial_device_display_name: Some("test".to_owned()),
                 refresh_token: false,
@@ -461,17 +477,26 @@ pub mod v3 {
             assert_eq!(
                 req_body_value,
                 json!({
-                    "type": "m.login.token",
-                    "token": "0xdeadbeef",
+                    "auth": {
+                        "type": "m.login.registration_token",
+                        "token": "0xdeadbeef",
+                        "session": null
+                    },
+                    "identifier": {
+                        "type": "m.id.user",
+                        "user":  "must be valid username"
+                    },
                     "initial_device_display_name": "test",
                 })
             );
 
             let req: http::Request<Vec<u8>> = Request {
-                login_info: LoginInfo::Password(Password {
-                    identifier: UserIdentifier::Email { address: "hello@example.com".to_owned() },
+                identifier: UserIdentifier::Email { address: "hello@example.com".to_owned() }, // could be any identifier  
+                auth: Some(AuthData::Password(Password {
+                    identifier: UserIdentifier::Email { address: "hello@example.com".to_owned() },     
                     password: "deadbeef".to_owned(),
-                }),
+                    session: None,
+                })),
                 device_id: None,
                 initial_device_display_name: Some("test".to_owned()),
                 refresh_token: false,
@@ -492,19 +517,26 @@ pub mod v3 {
                         "medium": "email",
                         "address": "hello@example.com"
                     },
-                    "type": "m.login.password",
-                    "password": "deadbeef",
-                    "initial_device_display_name": "test",
+                    "auth": {
+                        "type": "m.login.password",
+                        "identifier": {
+                            "type": "m.id.thirdparty",
+                            "medium": "email",
+                            "address": "hello@example.com"
+                        },
+                        "password": "deadbeef",
+                        "session": null
+                    },
+                    "initial_device_display_name": "test"
                 })
             );
 
-
-
             let req: http::Request<Vec<u8>> = Request {
-                login_info: LoginInfo::Camino(CaminoLoginInfo {
-                    public_key: "0386837edd2d9f507b6684766ed9f657cadc7f27fb01a10dfbfae6196230294b4c9fd428d2".to_owned(),
+                identifier: UserIdentifier::UserIdOrLocalpart("username derived from signature".to_owned()),
+                auth: Some(AuthData::Camino(Camino { 
                     signature: "91cf6195a331f7d49609fe5b939d7d7d9767bfaeafa7a890d5a541891a8171d56e29ff46e933a03c113b6695bbd2ea95e4b5fa6eef1d019bd19283d08f46e9550076c36108".to_owned(),
-                }),
+                    session: None,
+                 })),
                 device_id: None,
                 initial_device_display_name: Some("test".to_owned()),
                 refresh_token: false,
@@ -520,10 +552,16 @@ pub mod v3 {
             assert_eq!(
                 req_body_value,
                 json!({
-                    "type": "m.login.camino",
-                    "public_key": "0386837edd2d9f507b6684766ed9f657cadc7f27fb01a10dfbfae6196230294b4c9fd428d2",
-                    "signature": "91cf6195a331f7d49609fe5b939d7d7d9767bfaeafa7a890d5a541891a8171d56e29ff46e933a03c113b6695bbd2ea95e4b5fa6eef1d019bd19283d08f46e9550076c36108",
-                    "initial_device_display_name": "test",
+                    "identifier": {
+                        "type": "m.id.user",
+                        "user":  "username derived from signature"
+                    },
+                    "auth": {
+                        "type": "m.login.camino",
+                        "signature": "91cf6195a331f7d49609fe5b939d7d7d9767bfaeafa7a890d5a541891a8171d56e29ff46e933a03c113b6695bbd2ea95e4b5fa6eef1d019bd19283d08f46e9550076c36108",
+                        "session": null
+                    },
+                    "initial_device_display_name": "test"
                 })
             );
         }

@@ -172,11 +172,9 @@ impl AuthData {
             }
             // Dummy and fallback acknowledgement have no associated data
             Self::Dummy(_) | Self::FallbackAcknowledgement(_) => Cow::Owned(JsonObject::default()),
-            Self::Camino(x) => Cow::Owned(serialize(Camino {
-                public_key: x.public_key.clone(),
-                signature: x.signature.clone(),
-                session: None,
-            })),
+            Self::Camino(x) => {
+                Cow::Owned(serialize(Camino { signature: x.signature.clone(), session: None }))
+            }
             Self::_Custom(c) => Cow::Borrowed(&c.extra),
         }
     }
@@ -378,9 +376,6 @@ pub struct Msisdn {
 #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
 #[serde(tag = "type", rename = "m.login.camino")]
 pub struct Camino {
-    /// HEX-encoded camino public key bytes.
-    pub public_key: String,
-
     /// Hex-encoded signature bytes.
     pub signature: String,
 
@@ -715,4 +710,11 @@ impl OutgoingResponse for UiaaResponse {
             UiaaResponse::MatrixError(error) => error.try_into_http_response(),
         }
     }
+}
+
+/// Additional params for Camino uiaa.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CaminoParams {
+    /// Challenge-request payload for signing.
+    pub payload: String,
 }
